@@ -33,7 +33,13 @@ const BANDWIDTH_TYPES = {
   'HA Proxy': 'Sum of HA Proxy Requests'
 };
 
-const Bandwidth = ({ publishingHouses, bandwidthDataMap, fetchBandwidthData, loading, bandwidthData }) => {
+const Bandwidth = ({ 
+  publishingHouses = {}, 
+  bandwidthDataMap = {}, 
+  fetchBandwidthData = () => {}, 
+  loading = { publishers: true, bandwidth: true }, 
+  bandwidthData = [] 
+}) => {
   const [search, setSearch] = useState('');
   // Track expanded state for each houseName
   const [expandedMap, setExpandedMap] = useState({});
@@ -44,6 +50,7 @@ const Bandwidth = ({ publishingHouses, bandwidthDataMap, fetchBandwidthData, loa
 
   // Get unique months from bandwidth data
   const availableMonths = useMemo(() => {
+    if (!Array.isArray(bandwidthData)) return [];
     const months = new Set();
     bandwidthData.forEach(item => {
       const month = item['Date: Month']?.slice(0, 7);

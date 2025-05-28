@@ -7,6 +7,7 @@ import ScienceIcon from '@mui/icons-material/Science';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 import SportsEsportsIcon from '@mui/icons-material/SportsEsports';
+import LogoutIcon from '@mui/icons-material/Logout';
 import { useLocation, useNavigate } from 'react-router-dom';
 import PingPong from './PingPong';
 
@@ -41,6 +42,11 @@ const Layout = ({ children, search, setSearch }) => {
 
   const handlePingPongClose = () => {
     setPingPongOpen(false);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    window.location.reload();
   };
 
   return (
@@ -139,6 +145,14 @@ const Layout = ({ children, search, setSearch }) => {
                 sx={{ mr: 2 }}
               >
                 {darkMode ? <Brightness7Icon /> : <Brightness4Icon />}
+              </IconButton>
+              {/* Logout Button */}
+              <IconButton 
+                onClick={handleLogout} 
+                color="inherit"
+                sx={{ mr: 2 }}
+              >
+                <LogoutIcon />
               </IconButton>
               {/* Search Bar */}
               <Box sx={{ 

@@ -24,4 +24,8 @@ yarn-error.log*
 .idea/
 .vscode/
 *.swp
-*.swo 
+*.swo
+
+# Secrets
+secrets.yaml
+users.yaml 

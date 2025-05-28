@@ -1,18 +1,107 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const yaml = require('js-yaml');
+const fs = require('fs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = 3001;
 
-app.use(cors());
+// Keep the process running
+process.on('SIGINT', () => {
+  console.log('Received SIGINT. Performing graceful shutdown...');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('Received SIGTERM. Performing graceful shutdown...');
+  process.exit(0);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled Rejection:', err);
+});
+
+app.use(cors({
+  origin: 'http://localhost:3000',
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.static('public'));
 
-const API_KEY = 'mb_SPFKd4C8hEOVo51H7P9rwVS1kkOQ5mQDWji88YqxzHo=';
+// Load secrets from secrets.yaml
+const loadSecrets = () => {
+  try {
+    const fileContents = fs.readFileSync('secrets.yaml', 'utf8');
+    const data = yaml.load(fileContents);
+    return data.api_keys;
+  } catch (e) {
+    console.error('Error loading secrets:', e);
+    process.exit(1); // Exit if secrets can't be loaded
+  }
+};
 
-// API endpoint to get publishers and publishing houses
-app.get('/api/publishers', async (req, res) => {
+const secrets = loadSecrets();
+const API_KEY = secrets.metabase;
+const JWT_SECRET = secrets.jwt_secret;
+
+// Load users from YAML file
+const loadUsers = () => {
+  try {
+    const fileContents = fs.readFileSync('users.yaml', 'utf8');
+    const data = yaml.load(fileContents);
+    return data.users;
+  } catch (e) {
+    console.error('Error loading users:', e);
+    return [];
+  }
+};
+
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid token' });
+    }
+    req.user = user;
+    next();
+  });
+};
+
+// Login endpoint
+app.post('/api/login', (req, res) => {
+  console.log('Login attempt:', req.body);
+  const { username, password } = req.body;
+  const users = loadUsers(); // This will now reload the file on each login attempt
+  
+  console.log('Loaded users:', users.map(u => u.username)); // Log all usernames
+  const user = users.find(u => u.username === username && u.password === password);
+  
+  if (user) {
+    const token = jwt.sign({ username: user.username }, JWT_SECRET, { expiresIn: '24h' });
+    console.log('Login successful for user:', username);
+    res.json({ token });
+  } else {
+    console.log('Login failed for user:', username);
+    console.log('Available users:', users.map(u => u.username));
+    res.status(401).json({ error: 'Invalid credentials' });
+  }
+});
+
+// Protected API endpoints
+app.get('/api/publishers', authenticateToken, async (req, res) => {
   try {
     const response = await axios.post('https://metabase.quinpress.com/api/dataset', {
       database: 7,
@@ -29,12 +118,13 @@ app.get('/api/publishers', async (req, res) => {
     });
     res.json(response.data);
   } catch (error) {
+    console.error('Error fetching publishers:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// API endpoint to get all bandwidth data
-app.get('/api/bandwidth/all', async (req, res) => {
+// Add authentication to other endpoints
+app.get('/api/bandwidth/all', authenticateToken, async (req, res) => {
   try {
     const response = await axios.post('https://metabase.quinpress.com/api/card/232/query/json', {}, {
       headers: {
@@ -44,12 +134,12 @@ app.get('/api/bandwidth/all', async (req, res) => {
     });
     res.json(response.data);
   } catch (error) {
+    console.error('Error fetching bandwidth data:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// API endpoint to get bandwidth data for a specific publisher
-app.get('/api/bandwidth/:publisherName', async (req, res) => {
+app.get('/api/bandwidth/:publisherName', authenticateToken, async (req, res) => {
   try {
     const response = await axios.post('https://metabase.quinpress.com/api/card/232/query/json', {}, {
       headers: {
@@ -58,19 +148,18 @@ app.get('/api/bandwidth/:publisherName', async (req, res) => {
       }
     });
     
-    // Filter data for the specific publisher
     const publisherData = response.data.filter(item => 
       item['Publisher Name'] === req.params.publisherName
     );
     
     res.json(publisherData);
   } catch (error) {
+    console.error('Error fetching publisher bandwidth:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// API endpoint to get Sage tokens data
-app.get('/api/sage-tokens', async (req, res) => {
+app.get('/api/sage-tokens', authenticateToken, async (req, res) => {
   try {
     const response = await axios.post('https://metabase.quinpress.com/api/card/233/query/json', {}, {
       headers: {
@@ -80,10 +169,17 @@ app.get('/api/sage-tokens', async (req, res) => {
     });
     res.json(response.data);
   } catch (error) {
+    console.error('Error fetching Sage tokens:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-app.listen(port, () => {
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something broke!' });
+});
+
+const server = app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
 }); 

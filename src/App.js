@@ -1,13 +1,39 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Bandwidth from './pages/Bandwidth';
 import AllPublishers from './pages/AllPublishers';
 import Sage from './pages/Sage';
+import Login from './pages/Login';
 import axios from 'axios';
 import { Box, Typography, LinearProgress } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
 
 // Configure axios default base URL
 axios.defaults.baseURL = 'http://localhost:3001';
+
+// Add token to all requests
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Add response interceptor to handle 401 errors
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      // Only remove token and reload if we're not already on the login page
+      if (!window.location.pathname.includes('/login')) {
+        localStorage.removeItem('token');
+        window.location.reload();
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Linear regression slope for y = a + bx
 const getSlope = (yArr) => {
@@ -42,8 +68,20 @@ const LoadingScreen = ({ progress, status }) => {
         zIndex: 9999,
       }}
     >
+      <Box
+        component="img"
+        src="/badgerdance.gif"
+        alt="Badger Dance"
+        sx={{
+          width: '200px',
+          height: '200px',
+          mb: 4,
+          borderRadius: '50%',
+          objectFit: 'cover',
+        }}
+      />
       <Typography variant="h4" sx={{ mb: 4, fontWeight: 700 }}>
-        Badger is working
+        Badger is vibing...
       </Typography>
       <Box sx={{ width: '300px', mb: 2 }}>
         <LinearProgress 
@@ -139,6 +177,7 @@ const preprocessGraphData = (publishingHouses, bandwidthData) => {
 };
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [publishingHouses, setPublishingHouses] = useState({});
   const [bandwidthData, setBandwidthData] = useState([]);
   const [bandwidthDataMap, setBandwidthDataMap] = useState({});
@@ -148,8 +187,9 @@ function App() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingStatus, setLoadingStatus] = useState('Initializing...');
   const [isFullyLoaded, setIsFullyLoaded] = useState(false);
+  const navigate = useNavigate();
 
-  // Fetch publishers once
+  // Fetch publishers
   const fetchPublishers = useCallback(async () => {
     try {
       setLoadingStatus('Fetching publishers...');
@@ -233,12 +273,36 @@ function App() {
     }
   }, []);
 
+  // Check if user is already authenticated
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      setIsAuthenticated(true);
+    } else {
+      setLoading({ publishers: false, bandwidth: false, sage: false });
+      setIsFullyLoaded(true);
+    }
+  }, []);
+
+  // Handle successful login
+  const handleLogin = useCallback((success) => {
+    if (success) {
+      // Reset loading states before starting data fetch
+      setLoading({ publishers: true, bandwidth: true, sage: true });
+      setLoadingProgress(0);
+      setLoadingStatus('Starting up...');
+      setIsFullyLoaded(false);
+      setIsAuthenticated(true);
+      navigate('/bandwidth', { replace: true });
+    }
+  }, [navigate]);
+
+  // Initialize app data when authenticated
   useEffect(() => {
     const initializeApp = async () => {
+      if (!isAuthenticated) return;
+
       try {
-        setLoadingProgress(0);
-        setLoadingStatus('Starting up...');
-        
         // First fetch all publishers
         const publishers = await fetchPublishers();
         setPublishingHouses(publishers);
@@ -269,12 +333,17 @@ function App() {
         setIsFullyLoaded(true);
       } catch (error) {
         console.error('Error initializing app:', error);
+        if (error.response?.status === 401) {
+          localStorage.removeItem('token');
+          setIsAuthenticated(false);
+          navigate('/login', { replace: true });
+        }
         setLoadingStatus('Error initializing app. Please refresh the page.');
       }
     };
     
     initializeApp();
-  }, [fetchPublishers, fetchBandwidthData, fetchSageTokensData]);
+  }, [isAuthenticated, navigate, fetchPublishers, fetchBandwidthData, fetchSageTokensData]);
 
   // For Bandwidth page: refresh per publisher
   const refreshBandwidthForPublisher = async (publisherName) => {
@@ -298,19 +367,59 @@ function App() {
     }
   };
 
-  if (!isFullyLoaded) {
-    return <LoadingScreen progress={loadingProgress} status={loadingStatus} />;
-  }
-
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Bandwidth publishingHouses={publishingHouses} bandwidthDataMap={bandwidthDataMap} fetchBandwidthData={refreshBandwidthForPublisher} loading={loading} bandwidthData={bandwidthData} />} />
-        <Route path="/all-publishers" element={<AllPublishers publishingHouses={publishingHouses} bandwidthData={bandwidthData} processedGraphData={processedGraphData} loading={loading} />} />
-        <Route path="/sage" element={<Sage publishingHouses={publishingHouses} sageTokensData={sageTokensData} loading={loading} />} />
-      </Routes>
-    </BrowserRouter>
+    <>
+      {!isAuthenticated ? (
+        <Login onLogin={handleLogin} />
+      ) : !isFullyLoaded ? (
+        <LoadingScreen progress={loadingProgress} status={loadingStatus} />
+      ) : (
+        <Routes>
+          <Route path="/" element={<Navigate to="/bandwidth" replace />} />
+          <Route 
+            path="/bandwidth" 
+            element={
+              <Bandwidth 
+                publishingHouses={publishingHouses}
+                bandwidthDataMap={bandwidthDataMap}
+                fetchBandwidthData={refreshBandwidthForPublisher}
+                loading={loading}
+                bandwidthData={bandwidthData}
+              />
+            } 
+          />
+          <Route 
+            path="/sage" 
+            element={
+              <Sage 
+                publishingHouses={publishingHouses}
+                sageTokensData={sageTokensData}
+                loading={loading}
+              />
+            } 
+          />
+          <Route 
+            path="/all-publishers" 
+            element={
+              <AllPublishers 
+                publishingHouses={publishingHouses}
+                bandwidthData={bandwidthData}
+                processedGraphData={processedGraphData}
+                loading={loading}
+              />
+            } 
+          />
+        </Routes>
+      )}
+    </>
   );
 }
 
-export default App; 
+// Wrap App with BrowserRouter in the export
+export default function AppWithRouter() {
+  return (
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  );
+} 
