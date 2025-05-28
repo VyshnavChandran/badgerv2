@@ -9,7 +9,7 @@ import { Box, Typography, LinearProgress } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 
 // Configure axios default base URL
-axios.defaults.baseURL = 'http://localhost:3001';
+axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
 
 // Add token to all requests
 axios.interceptors.request.use((config) => {
